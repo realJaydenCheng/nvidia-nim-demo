@@ -204,7 +204,6 @@ def rank_passages(
         ]
     }
 
-    # re-use connections
     session = requests.Session()
     response = session.post(invoke_url, headers=headers, json=payload)
     response.raise_for_status()

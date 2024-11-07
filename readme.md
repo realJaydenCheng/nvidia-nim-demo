@@ -10,7 +10,7 @@
 
 本项目的AI能力均在 NVIDIA NIM 平台上实现，并在项目的检索增强部分使用和参考 NIM Agent Blueprint 的模型和架构实现。参考的 Blueprint：[https://build.nvidia.com/nvidia/multimodal-pdf-data-extraction-for-enterprise-rag]
 
-项目代码：[]
+项目代码：[https://github.com/realJaydenCheng/nvidia-nim-demo]
 
 ## 项目简介
 
@@ -21,7 +21,7 @@
 1. 大模型为了保证输出不局限于一种形式，在生成过程中存在随机采样，生成的内容和格式不可控；
 2. 大模型是基于自回归的，在生成有复杂层次的大纲时上层大纲并没有生成完就生成下层内容，和人类规划大纲自顶向下的方法不同。
 
-【目前的问题】
+![issue description](./imgs/issue_description.png)
 
 会导致直接让大模型生成大纲存在不限于以下的问题：
 
@@ -33,7 +33,7 @@
 
 本项目基于 NVIDIA NIM 平台，使用 LLaMA/Qwen/mistral 等作为基座模型，采用 gradio 构建示例用户图形界面。NVIDIA NIM 平台提供了强大的自然语言处理等人工智能能力，能够方便、高效地调用各种预训练模型，甚至进行定制化的推理。
 
-【nim blueprint 截图】
+![nvidia nim platform](./imgs/nvidia_nim_platform.png)
 
 此外，为了让大模型更好地生成选题，并让模型有更多信息用于参考，不局限于自己的先验知识，本项目还使用 “Multimodal PDF Data Extraction” 这个 NIM Agent Blueprint 中的模型，构建了一套 PDF 文档解析和构造子模块。这个模块可以提取出文档中的文本和图像，并将图像转换为可检索的文本，然后将上述所有文本分块嵌入到向量空间中存储。在得到嵌入的文档后，该模块还可以实现简单的文本块检索，包括相似度计算、召回、精排等步骤，找出和 query 最相关的文本块。
 
@@ -49,7 +49,7 @@
 
 Prompts 是生成式任务方案的重要组成部分，本项目中 Prompts 是用了基本的指令和 few-shot 方案。
 
-【递归结构化生成方案示意图】
+![recursive outline generation](./imgs/recursive_outline_generation.png)
 
 ### 第一层大纲生成 (`generate_first_level_outlines`)
 
@@ -128,13 +128,15 @@ def recursive_outline(idea: str, target_layer: int, model_name: str,):
 
 最终生成的大纲是一个具有树状结构的嵌套 dict 数据结构。所有的大纲条目文本均是这个树状结构的一个节点。同一个双亲节点下的叶子节点的大纲条目将存储在一个 list 中，非叶子节点的大纲条目都是 dict 中的键，其子节点将存储在后续的 dict 或 list 中。
 
-【数据结构示意图】
+![data structure](./imgs/data_structure.png)
 
 ### Prompts
 
 本项目的 Prompt 明确告知模型生成PPT大纲的任务，提供主题信息（idea）和所需层级（layer），确保模型能够聚焦于特定主题，并生成相应层次的内容。此外，通过提供多个生成示例（few-shot），向模型展示了预期的输出格式和内容结构，并提供了明确的上下文，帮助模型更好地生成和避免生成重叠和模糊地内容。
 
-【prompt示意图】
+![prompt examples](./imgs/prompt_examples.png)
+
+这里使用的是中文示意图，代码中实际为英文提示词。
 
 ### 获取模型响应(`request_model_for_one_response`)
 
@@ -219,7 +221,7 @@ def compare_outlines(input_text: str, layers: float, model_name: str):
 2. **召回**：设定一个最高阈值，大于这个阈值的文档分块进入下一步骤，如果符合要求的分块不足，则降低阈值重复此步骤；
 3. **精排**：将召回得到的文档分块和用户的输入文本一一比对，精确对比和调整相似度和对比相关关系。
 
-【RAG方案示意图】
+![RAG](./imgs/RAG.png)
 
 ### 解析文档（`IngestedDoc`）
 
@@ -271,20 +273,108 @@ class IngestedDoc:
 
 在文档解析与检索增强方案中，文本嵌入是将文档中的文本信息转换为机器学习模型能够理解和处理的数字向量的过程。这一过程不仅能够保留文本的语义信息，还能为后续的相似度计算、信息检索等操作提供基础。
 
+```python
+def chunk_text(
+    text: str,
+    chunk_size: int = 256,
+    overlap: int = 64,
+):
+    clean_text = re.sub(r'[\s\n]+', ' ', text, flags=re.S).strip()
+    chunked = [
+        clean_text[i:i + chunk_size]
+        for i in range(0, len(text), chunk_size - overlap)
+    ]
+    return [
+        chunk for chunk in chunked
+        if re.sub(r'[\s\n]+', '', chunk, flags=re.S).strip()
+    ]
+```
+
 `chunk_text` 函数的主要任务是将一段较长的文本切分为多个较短的文本块，以便于后续的嵌入转换和信息处理。首先清理文本，使用正则表达式去除文本中的多余空格和换行符，确保每个文本块的内部结构更加紧凑。接着根据 `chunk_size` 和 `overlap` 参数，将清理后的文本按指定的步长和重叠长度切分为多个文本块。步长为 `chunk_size - overlap`，确保相邻文本块之间有一定的重叠，从而避免信息的丢失。然后再次使用正则表达式去除每个文本块中的空白字符，确保最终返回的文本块中没有空或只有空白字符的块，最终返回一个包含所有非空白文本块的列表。
 
+```python
+def text_to_embd(
+    text: list[str],
+    type: Literal["query", "passage"] = "passage",
+    batch_size: int = 128,
+):
+    client = OpenAI(
+        api_key=NVIDIA_API_KEY,
+        base_url="https://integrate.api.nvidia.com/v1"
+    )
+
+    result = []
+    for i in range(0, len(text), batch_size):
+        result.extend(text_to_embd_one_batch(
+            text[i:i + batch_size], type, client
+        ))
+    return result
+```
+
 `text_to_embd` 函数的主要任务是将文本块转换为嵌入向量。在初始化 OpenAI 客户端后，为了提高处理效率，函数将文本块按 `batch_size` 分批处理。对于每一批文本块，调用 `text_to_embd_one_batch` 函数获取其嵌入向量。`text_to_embd_one_batch` 函数负责与嵌入模型进行实际的交互，将一批文本块转换为嵌入向量。最后将所有批次的嵌入向量合并为一个列表，并返回。
+
+```python
+def text_to_embd_one_batch(
+    text: list[str],
+    type: Literal["query", "passage"],
+    client: OpenAI
+):
+    response = client.embeddings.create(
+        input=text,
+        model="nvidia/nv-embedqa-e5-v5",
+        encoding_format="float",
+        extra_body={"input_type": type, "truncate": "NONE"}
+    )
+
+    return [
+        obj.embedding for obj in response.data
+    ]
+
+```
 
 ### 相似度计算与召回（`recall_passages`）
 
 整个检索的过成定义在 `IngestedDoc` 类中：
 
 ```python
+class IngestedDoc:
+    ...
+    def retrieve(
+        self,
+        query: str,
+        top_k=5,
+        max_threshold: float = 0.8,
+    ):
+        recalled_indices = recall_passages(
+            query, self.embeddings,
+            max_threshold, top_k
+        )
+        recalled_chunks = [self.chunked_text[i] for i in recalled_indices]
+        ranked_indices = rank_passages(query, recalled_chunks)
+        return [
+            recalled_chunks[i]
+            for i in ranked_indices[:top_k]
+        ]
 ```
 
 `recall_passages` 的主要任务是在给定的文档分块中，根据用户提供的查询文本，找到与查询文本最相关的文档分块。这一过程包括以下几个关键步骤：查询文本的嵌入转换、相似度计算、召回和阈值调整。通过这些步骤，函数能够高效地从大量文档分块中筛选出最相关的结果。此模块应用于单文档或小规模文档集合的场景，使用 NumPy 计算向量相似度，具有轻量化、易部署的优势。与向量数据库方案相比，该方案适用于对计算效率要求较高且数据规模较小的应用场景，为用户提供快速、准确的召回结果。
 
 ```python
+def recall_passages(
+    query: str,
+    chunk_embds: np.ndarray,
+    threshold: float,
+    top_k: int,
+):
+    query_embd = text_to_embd([query], "query")
+    similarities = np.dot(chunk_embds, query_embd[0])
+    indices = np.array([])
+    for t in range(int(threshold * 100), 0, -5):
+        t = t / 100
+        indices = np.where(similarities > t / threshold)[0]
+        if len(indices) > top_k:
+            break
+    return indices
 ```
 
 将查询文本转换为嵌入后，计算查询文本嵌入向量与所有文档分块嵌入向量之间的点积，得到一个相似度数组 `similarities` 。点积的结果反映了查询文本与每个文档分块之间的相似度。召回部分具体算法如下：
@@ -299,6 +389,33 @@ class IngestedDoc:
 `rank_passages` 函数的对召回的文档分块进行精确排序。精排是为了确保最终返回给模型提供的内容不仅相关度高、信息密度足够，而且尽量占用少的token，降低调用成本的同时避免模型在大量数据中找不着关键信息。这一过程通过调用 NVIDIA 提供的 nv-rerankqa-mistral-4b-v3 模型来实现，该模型能够更精细地评估查询文本与每个文档分块之间的相关性。
 
 ```python
+def rank_passages(
+    query: str,
+    passages: list[str],
+):
+    invoke_url = "https://ai.api.nvidia.com/v1/retrieval/nvidia/nv-rerankqa-mistral-4b-v3/reranking"
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Accept": "application/json",
+    }
+
+    payload = {
+        "model": "nvidia/nv-rerankqa-mistral-4b-v3",
+        "query": {"text": query},
+        "passages": [
+            {"text": passage}
+            for passage in passages
+        ]
+    }
+
+    session = requests.Session()
+    response = session.post(invoke_url, headers=headers, json=payload)
+    response.raise_for_status()
+
+    rankings: list[int] = [
+        data["index"] for data in response.json()['rankings']
+    ]
+    return rankings
 ```
 
 ## 项目效果与分析总结
@@ -307,7 +424,7 @@ class IngestedDoc:
 
 结果分析使用的是 [https://ashevat.medium.com/growth-is-a-promise-retention-is-a-promise-kept-839ce317310c] 这篇文章作为参考 PDF，输入的主题是“Retaining loyal users is a key factor in a startup's success.”
 
-【生成效果】
+![output](./imgs/output.png)
 
 如图所示，递归结构化生成的效果不仅结构清晰、方便利用，而且相对于普通方法，生成了正确的层次深度，大纲对于主题的分析更加深入和全面，有更多的信息量和参考价值。
 

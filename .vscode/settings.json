@@ -1,10 +1,29 @@
 {
     "cSpell.words": [
+        "abssize",
+        "colorspace",
+        "dimlimit",
+        "elif",
         "embd",
         "embds",
+        "embedqa",
         "fitz",
         "gradio",
+        "imgdata",
+        "imgdict",
+        "isinstance",
+        "mistralai",
+        "Multimodal",
+        "pixmap",
+        "pixmaps",
         "pymupdf",
-        "rerank"
+        "qwen",
+        "recoverpix",
+        "relsize",
+        "rerank",
+        "rerankqa",
+        "smask",
+        "smasks",
+        "tobytes"
     ]
 }
